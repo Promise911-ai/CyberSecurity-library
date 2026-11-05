@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cyber Security Library</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f6f7f9;--ink:#14181f;--muted:#5b6573;--line:#d9dde3;--link:#1b4fd8}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1318;--ink:#e6e9ee;--muted:#98a2b0;--line:#272d36;--link:#7da2ff}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 1.15rem/1.65 'Newsreader',Georgia,serif}
+main{max-width:38rem;margin:0 auto;padding:4rem 1.25rem 3rem}
+h1{font-size:2.4rem;line-height:1.15;font-weight:600;margin:0 0 .75rem;letter-spacing:-.01em}
+p{margin:0 0 1rem}
+.muted{color:var(--muted)}
+a{color:var(--link)}
+ul{list-style:none;margin:2rem 0 0;padding:0;border-top:1px solid var(--line)}
+li{display:flex;justify-content:space-between;gap:1rem;align-items:baseline;padding:.8rem 0;border-bottom:1px solid var(--line)}
+button,input{font:inherit;color:inherit}
+button{background:none;border:1px solid var(--line);border-radius:6px;padding:.35rem .9rem;cursor:pointer}
+button:hover{border-color:var(--ink)}
+.del{border:0;padding:0;color:var(--muted);font-size:.95rem}
+input{background:transparent;border:1px solid var(--line);border-radius:6px;padding:.45rem .7rem;width:100%;margin-bottom:.6rem}
+:focus-visible{outline:2px solid var(--link);outline-offset:2px}
+#owner{margin-top:2.5rem;padding-top:1.5rem;border-top:1px solid var(--line)}
+#msg{min-height:1.5rem}
+footer{margin-top:3rem;font-size:.95rem}
+footer button{border:0;padding:0;color:var(--muted)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <h1>Cyber Security Library</h1>
+  <p class="muted">Free books on cyber security. Open any title and read it in your browser. No account needed.</p>
+
+  <ul id="books"><li class="muted">Loading books…</li></ul>
+
+  <section id="owner" hidden>
+    <form id="login">
+      <p>Owner login</p>
+      <input type="password" id="pw" placeholder="Password" autocomplete="current-password" required>
+      <button>Log in</button>
+    </form>
+    <form id="up" hidden>
+      <p>Add a book</p>
+      <input type="text" id="title" placeholder="Book title" required>
+      <input type="file" id="file" accept="application/pdf" required>
+      <button>Upload book</button>
+      <button type="button" id="out">Log out</button>
+    </form>
+    <p id="msg" class="muted" role="status"></p>
+  </section>
+
+  <footer><button id="toggle">Owner</button></footer>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let token = localStorage.getItem('token') || '';
+const say = (t) => { $('msg').textContent = t; };
+
+async function load() {
+  const list = $('books');
+  try {
+    const r = await fetch('/api/books');
+    const books = await r.json();
+    if (!r.ok) throw new Error(books.error);
+    list.innerHTML = books.length ? '' : '<li class="muted">No books yet. Check back soon.</li>';
+    for (const b of books) {
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = b.url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = b.title;
+      li.append(a);
+      if (token) {
+        const d = document.createElement('button');
+        d.className = 'del'; d.textContent = 'Delete';
+        d.onclick = async () => {
+          if (!confirm('Delete "' + b.title + '"?')) return;
+          const x = await fetch('/api/books/' + encodeURIComponent(b.name), { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
+          say(x.ok ? 'Deleted.' : 'Could not delete. Log in again.'); load();
+        };
+        li.append(d);
+      }
+      list.append(li);
+    }
+  } catch (e) { list.innerHTML = '<li class="muted">Could not load books. Refresh to try again.</li>'; }
+}
+
+function show() { $('login').hidden = !!token; $('up').hidden = !token; }
+
+$('toggle').onclick = () => { $('owner').hidden = !$('owner').hidden; show(); };
+$('login').onsubmit = async (e) => {
+  e.preventDefault();
+  const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: $('pw').value }) });
+  const d = await r.json();
+  if (!r.ok) return say(d.error);
+  token = d.token; localStorage.setItem('token', token); $('pw').value = ''; say(''); show(); load();
+};
+$('out').onclick = () => { token = ''; localStorage.removeItem('token'); show(); load(); };
+$('up').onsubmit = async (e) => {
+  e.preventDefault();
+  const f = new FormData(); f.append('title', $('title').value); f.append('book', $('file').files[0]);
+  say('Uploading…');
+  const r = await fetch('/api/books', { method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: f });
+  const d = await r.json();
+  say(r.ok ? 'Book added.' : d.error);
+  if (r.ok) { $('up').reset(); load(); }
+};
+load();
+</script>
+</body>
+</html>
