@@ -12,6 +12,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 const files = upload.fields([{ name: 'book', maxCount: 1 }, { name: 'cover', maxCount: 1 }]);
 
 const app = express();
+app.set('trust proxy', 1);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -74,6 +75,50 @@ app.delete('/api/books', owner, async (req, res) => {
   const [cat, file] = p.split('/');
   if (!CATS[cat] || !/^[a-z0-9-]+\.pdf$/.test(file || '')) return res.status(400).json({ error: 'Bad path' });
   const { error } = await supabase.storage.from(BUCKET).remove([p, p.replace(/\.pdf$/, '.jpg')]);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+const hits = new Map();
+const msgStore = () => supabase.storage.from('messages');
+let ready;
+const ensureBucket = () => ready || (ready = supabase.storage.createBucket('messages', { public: false }).catch(() => {}));
+
+app.post('/api/messages', async (req, res) => {
+  const { name = '', contact = '', message = '', website = '' } = req.body;
+  if (website) return res.json({ ok: true });
+  const now = Date.now();
+  const recent = (hits.get(req.ip) || []).filter((t) => now - t < 36e5);
+  if (recent.length >= 5) return res.status(429).json({ error: 'Too many messages. Try again later.' });
+  if (String(message).trim().length < 3 || String(contact).trim().length < 3) {
+    return res.status(400).json({ error: 'Please add your message and how to reach you.' });
+  }
+  hits.set(req.ip, [...recent, now]);
+  await ensureBucket();
+  const body = {
+    name: String(name).slice(0, 80), contact: String(contact).slice(0, 120),
+    message: String(message).slice(0, 2000), at: new Date().toISOString(),
+  };
+  const { error } = await msgStore().upload(`${now}-${crypto.randomBytes(3).toString('hex')}.json`,
+    Buffer.from(JSON.stringify(body)), { contentType: 'application/json' });
+  if (error) return res.status(500).json({ error: 'Could not send. Try again.' });
+  res.json({ ok: true });
+});
+
+app.get('/api/messages', owner, async (req, res) => {
+  await ensureBucket();
+  const { data, error } = await msgStore().list('', { limit: 200, sortBy: { column: 'name', order: 'desc' } });
+  if (error) return res.status(500).json({ error: error.message });
+  const out = await Promise.all(data.filter((f) => f.name.endsWith('.json')).map(async (f) => {
+    const d = await msgStore().download(f.name);
+    return d.error ? null : { id: f.name, ...JSON.parse(await d.data.text()) };
+  }));
+  res.json(out.filter(Boolean));
+});
+
+app.delete('/api/messages/:id', owner, async (req, res) => {
+  if (!/^[0-9a-f-]+\.json$/.test(req.params.id)) return res.status(400).json({ error: 'Bad id' });
+  const { error } = await msgStore().remove([req.params.id]);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ ok: true });
 });

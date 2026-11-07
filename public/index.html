@@ -29,12 +29,17 @@ button:hover,button[aria-pressed=true]{border-color:var(--ink)}
 .tag{font-size:.85rem;color:var(--muted)}
 a:hover .t{color:var(--link)}
 .del{border:0;padding:0;color:var(--muted);font-size:.9rem}
-input,select{background:transparent;border:1px solid var(--line);border-radius:6px;padding:.45rem .7rem;width:100%;margin-bottom:.6rem}
+input,select,textarea{background:transparent;border:1px solid var(--line);border-radius:6px;padding:.45rem .7rem;width:100%;margin-bottom:.6rem}
 select option{color:#000}
 :focus-visible{outline:2px solid var(--link);outline-offset:2px}
 #owner{max-width:30rem;margin-top:3rem;padding-top:1.5rem;border-top:1px solid var(--line)}
 footer{margin-top:3rem;font-size:.95rem}
 footer button{border:0;padding:0;color:var(--muted)}
+textarea{min-height:7rem;resize:vertical}
+h2{font-size:1.4rem;font-weight:600;margin:0 0 .5rem}
+#ask{max-width:30rem;margin-top:3rem;padding-top:1.5rem;border-top:1px solid var(--line)}
+.m{border-top:1px solid var(--line);padding:.8rem 0}
+.hp{position:absolute;left:-9999px}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -45,6 +50,19 @@ footer button{border:0;padding:0;color:var(--muted)}
 
   <div id="tabs"></div>
   <div id="grid"><p class="muted">Loading books…</p></div>
+
+  <section id="ask">
+    <h2>Can't find a book?</h2>
+    <p class="muted">Tell me which book you're looking for and how to reach you, and I'll try to add it.</p>
+    <form id="msgform">
+      <input type="text" id="mn" placeholder="Your name (optional)" maxlength="80">
+      <input type="text" id="mc" placeholder="Your email or WhatsApp number" maxlength="120" required>
+      <textarea id="mm" placeholder="Book title or your message" maxlength="2000" required></textarea>
+      <input type="text" id="mw" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button>Send message</button>
+      <span id="mstat" class="muted" role="status"></span>
+    </form>
+  </section>
 
   <section id="owner" hidden>
     <form id="login">
@@ -63,6 +81,7 @@ footer button{border:0;padding:0;color:var(--muted)}
       <button>Upload book</button>
       <button type="button" id="out">Log out</button>
     </form>
+    <div id="inbox"></div>
     <p id="msg" class="muted" role="status"></p>
   </section>
 
@@ -131,7 +150,35 @@ async function makeCover(file) {
   return new Promise((ok) => c.toBlob(ok, 'image/jpeg', 0.8));
 }
 
-function show() { $('login').hidden = !!token; $('up').hidden = !token; }
+function show() { $('login').hidden = !!token; $('up').hidden = !token; inbox(); }
+
+async function inbox() {
+  const box = $('inbox'); box.replaceChildren();
+  if (!token) return;
+  const r = await fetch('/api/messages', { headers: { Authorization: 'Bearer ' + token } });
+  if (!r.ok) return;
+  const list = await r.json();
+  const h = document.createElement('p'); h.textContent = 'Messages (' + list.length + ')'; box.append(h);
+  for (const m of list) {
+    const d = document.createElement('div'); d.className = 'm';
+    const top = document.createElement('div'); top.className = 'tag';
+    top.textContent = (m.name || 'Anonymous') + ' · ' + m.contact + ' · ' + new Date(m.at).toLocaleDateString();
+    const body = document.createElement('p'); body.textContent = m.message;
+    const x = document.createElement('button'); x.className = 'del'; x.textContent = 'Delete';
+    x.onclick = async () => { await fetch('/api/messages/' + m.id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } }); inbox(); };
+    d.append(top, body, x); box.append(d);
+  }
+}
+
+$('msgform').onsubmit = async (e) => {
+  e.preventDefault();
+  const s = $('mstat'); s.textContent = 'Sending…';
+  const r = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: $('mn').value, contact: $('mc').value, message: $('mm').value, website: $('mw').value }) });
+  const d = await r.json();
+  s.textContent = r.ok ? 'Sent. Thank you!' : d.error;
+  if (r.ok) e.target.reset();
+};
 $('toggle').onclick = () => { $('owner').hidden = !$('owner').hidden; show(); };
 $('login').onsubmit = async (e) => {
   e.preventDefault();
