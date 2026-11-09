@@ -16,6 +16,8 @@ app.set('trust proxy', 1);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+app.disable('x-powered-by');
+
 const sign = (v) => crypto.createHmac('sha256', SESSION_SECRET).update(String(v)).digest('hex');
 const makeToken = () => { const exp = Date.now() + 7 * 864e5; return `${exp}.${sign(exp)}`; };
 const valid = (tok = '') => {
